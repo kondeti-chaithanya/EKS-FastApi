@@ -6,69 +6,45 @@ on:
       - main
 
 permissions:
+  id-token: write        # REQUIRED for OIDC
   contents: read
-  id-token: write   # REQUIRED for OIDC
 
 env:
   AWS_REGION: ap-southeast-1
+  EKS_CLUSTER_NAME: fastapi-cluster-v2
   ECR_REPOSITORY: fastapi-eks
-  CLUSTER_NAME: fastapi-cluster-v2
   IMAGE_TAG: latest
 
 jobs:
-  build-and-deploy:
+  deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Configure AWS via OIDC
+      # 🔐 OIDC → Assume IAM role
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::997868087240:role/github-eks-role
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3️⃣ Login to Amazon ECR
+      # 🔑 Login to ECR
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4️⃣ Build & Push Docker image
+      # 🐳 Build & Push image
       - name: Build and push Docker image
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG \
+            997868087240.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push \
+            997868087240.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
 
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
-
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-
-      # 5️⃣ Install kubectl
+      # ☸️ Install kubectl
       - name: Install kubectl
         run: |
-          curl -LO https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      # 6️⃣ Update kubeconfig
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig \
-            --region $AWS_REGION \
-            --name $CLUSTER_NAME
-
-      # 7️⃣ Deploy to EKS
-      - name: Deploy to EKS
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-
-      # 8️⃣ Restart deployment (force new image pull)
-      - name: Restart deployment
-        run: |
-          kubectl rollout restart deployment fastapi-deployment
-          kubectl rollout status deployment fastapi-deployment
+          curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
