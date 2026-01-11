@@ -2,42 +2,59 @@ name: Deploy FastAPI to EKS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 env:
-  AWS_REGION: ap-south-1
-  ECR_REPOSITORY: fastapi-eks
-  EKS_CLUSTER_NAME: my-eks-cluster
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: fastapi
+  EKS_CLUSTER_NAME: fastapi-cluster-v2
 
 jobs:
   deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write   # REQUIRED for OIDC
+
     steps:
-    - name: Checkout code
+    # 1️⃣ Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
 
+    # 2️⃣ Configure AWS credentials (OIDC – NO secrets)
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-eks-role
         aws-region: ${{ env.AWS_REGION }}
 
+    # 3️⃣ Login to Amazon ECR
     - name: Login to Amazon ECR
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build and push Docker image
+    # 4️⃣ Build & Push Docker image
+    - name: Build, tag, and push image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
       run: |
-        docker build -t $ECR_REPOSITORY .
-        docker tag $ECR_REPOSITORY:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:latest
-        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/$ECR_REPOSITORY:latest
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+        echo "IMAGE=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_ENV
 
+    # 5️⃣ Update kubeconfig
     - name: Update kubeconfig
       run: |
-        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+        aws eks update-kubeconfig \
+          --region $AWS_REGION \
+          --name $EKS_CLUSTER_NAME
 
+    # 6️⃣ Deploy to EKS
     - name: Deploy to EKS
       run: |
-        kubectl apply -f k8s/deployment.yaml
-        kubectl apply -f k8s/service.yaml
+        kubectl set image deployment/fastapi-deployment \
+          fastapi=${IMAGE}
+        kubectl rollout status deployment/fastapi-deployment

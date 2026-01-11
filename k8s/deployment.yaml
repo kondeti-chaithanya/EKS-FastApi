@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastapi-app
+  name: fastapi-deployment
 spec:
   replicas: 2
   selector:
@@ -14,6 +14,6 @@ spec:
     spec:
       containers:
       - name: fastapi
-        image: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/fastapi-eks:latest
+        image: 997868087240.dkr.ecr.ap-southeast-1.amazonaws.com/fastapi-eks:latest
         ports:
-        - containerPort: 8000
+        - containerPort: 80
