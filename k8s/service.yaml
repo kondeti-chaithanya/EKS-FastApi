@@ -9,6 +9,6 @@ spec:
     app: fastapi
   ports:
     - name: http
-      port: 80          # Service port
-      targetPort: 8000  # MUST match containerPort
+      port: 80
+      targetPort: 8000   
       protocol: TCP
